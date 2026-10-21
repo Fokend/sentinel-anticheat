@@ -1,0 +1,15 @@
+name: SentinelAC
+version: '1.0.0'
+main: dev.fokend.sentinel.SentinelPlugin
+api-version: '1.21'
+authors: [ fokend ]
+description: Lightweight server-side AntiCheat for Combat, Movement and World exploits.
+
+permissions:
+  sentinel.bypass:
+    description: Игнорирование проверок античита
+    default: op
+  sentinel.alerts:
+    description: Получение уведомлений о срабатываниях и управление античитом
+    default: op
+
