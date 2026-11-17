@@ -1,15 +1,17 @@
 name: SentinelAC
-version: '1.0.0'
+version: '${version}'
 main: dev.fokend.sentinel.SentinelPlugin
-api-version: '1.21'
+api-version: '1.21.11'
 authors: [ fokend ]
-description: Lightweight server-side AntiCheat for Combat, Movement and World exploits.
+description: Серверный античит Paper 1.21.11 — AutoSwap, MultiAura, NoSwing, Reach, Fly, Speed, NoSlow, Timer, BlockReach, AirPlace, Scaffold.
 
 permissions:
   sentinel.bypass:
-    description: Игнорирование проверок античита
+    description: Игнорирование всех проверок античита
     default: op
   sentinel.alerts:
-    description: Получение уведомлений о срабатываниях и управление античитом
+    description: Получение уведомлений и просмотр профилей
     default: op
-
+  sentinel.admin:
+    description: Перезагрузка конфигурации
+    default: op

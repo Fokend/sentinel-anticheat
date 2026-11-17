@@ -1,30 +1,37 @@
 package dev.fokend.sentinel.data;
 
-import org.bukkit.entity.Player;
-
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
+import org.bukkit.entity.Player;
 
+/** Data of online players only: created on join, removed on quit. Main thread only. */
 public final class PlayerDataManager {
 
-    private final Map<UUID, PlayerData> dataMap = new ConcurrentHashMap<>();
+    private final Map<UUID, PlayerData> data = new HashMap<>();
 
-    public PlayerData getData(Player player) {
-        return dataMap.computeIfAbsent(player.getUniqueId(), PlayerData::new);
+    public PlayerData get(Player player) {
+        return data.computeIfAbsent(player.getUniqueId(), PlayerData::new);
     }
 
-    public void removeData(UUID uuid) {
-        dataMap.remove(uuid);
+    public PlayerData getIfPresent(UUID id) {
+        return data.get(id);
     }
 
-    public Collection<PlayerData> getAllData() {
-        return dataMap.values();
+    public void remove(UUID id) {
+        data.remove(id);
     }
 
-    public void clearAll() {
-        dataMap.clear();
+    public Collection<PlayerData> all() {
+        return data.values();
+    }
+
+    public int size() {
+        return data.size();
+    }
+
+    public void clear() {
+        data.clear();
     }
 }
-

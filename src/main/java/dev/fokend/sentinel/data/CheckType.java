@@ -1,37 +1,51 @@
 package dev.fokend.sentinel.data;
 
+import java.util.Locale;
+import java.util.Map;
+
+/**
+ * All checks. {@link #key()} is used in config.yml and in the per-check bypass permission
+ * {@code sentinel.bypass.<key>}.
+ */
 public enum CheckType {
-    REACH("Reach", "Превышена дистанция удара", 6.0),
-    HITBOX("HitBoxes", "Удар мимо серверного хитбокса цели", 5.0),
-    AUTO_ATTRIBUTE_SWAP("AutoSwap", "Макрос/чит мгновенной смены оружия при ударе", 4.0),
-    MULTI_AURA("Killaura/Multi", "Атака нескольких целей в один тик", 3.0),
-    FLY("Fly", "Невалидная гравитация или зависание в воздухе", 8.0),
-    SPEED("Speed", "Превышение лимита горизонтальной скорости", 8.0),
-    NOSLOW("NoSlow", "Отсутствие замедления при использовании предмета", 6.0),
-    AIR_PLACE("AirPlace", "Попытка поставить блок без опорной грани", 4.0),
-    BAD_PACKETS("BadPackets", "Невозможные углы ротации или частота действий", 2.0),
-    SCAFFOLD("Scaffold", "Аномальная установка блоков под себя на скорости", 6.0);
+    AUTOSWAP("AutoSwap", "Смена слота после удара в том же клиентском тике (auto attribute swap)",
+            Map.of("penalty-seconds", 15.0)),
+    MULTIAURA("MultiAura", "Удары по разным целям в одном клиентском тике", Map.of()),
+    NOSWING("NoSwing", "Удар без взмаха руки", Map.of()),
+    REACH("Reach", "Удар дальше дистанции взаимодействия (с компенсацией пинга)",
+            Map.of("tolerance", 0.1, "hitbox-margin", 0.1, "extra-ticks", 4.0)),
+    FLY("Fly", "Движение вверх или зависание вопреки гравитации", Map.of("tolerance", 0.03)),
+    SPEED("Speed", "Горизонтальная скорость выше физически возможной", Map.of("tolerance", 0.025)),
+    NOSLOW("NoSlow", "Нет замедления при использовании предмета", Map.of("tolerance", 0.025, "min-use-ticks", 3.0)),
+    TIMER("Timer", "Клиент шлёт больше 20 тиков в секунду", Map.of("threshold-ms", 200.0, "max-lag-ms", 1000.0)),
+    BADPACKETS("BadPackets", "Невозможный угол камеры", Map.of()),
+    BLOCKREACH("BlockReach", "Установка блока дальше дистанции взаимодействия", Map.of("tolerance", 0.25)),
+    AIRPLACE("AirPlace", "Установка блока на воздух", Map.of()),
+    SCAFFOLD("Scaffold", "Блок под ноги при взгляде вперёд или вверх", Map.of("max-pitch", 30.0));
 
     private final String displayName;
     private final String description;
-    private final double punishThreshold;
+    private final Map<String, Double> defaultParams;
 
-    CheckType(String displayName, String description, double punishThreshold) {
+    CheckType(String displayName, String description, Map<String, Double> defaultParams) {
         this.displayName = displayName;
         this.description = description;
-        this.punishThreshold = punishThreshold;
+        this.defaultParams = defaultParams;
     }
 
-    public String getDisplayName() {
+    public String key() {
+        return name().toLowerCase(Locale.ROOT);
+    }
+
+    public String displayName() {
         return displayName;
     }
 
-    public String getDescription() {
+    public String description() {
         return description;
     }
 
-    public double getPunishThreshold() {
-        return punishThreshold;
+    public Map<String, Double> defaultParams() {
+        return defaultParams;
     }
 }
-

@@ -1,230 +1,121 @@
 package dev.fokend.sentinel.data;
 
-import org.bukkit.Location;
-
-import java.util.EnumMap;
-import java.util.Map;
+import dev.fokend.sentinel.engine.PositionHistory;
+import dev.fokend.sentinel.engine.SwapTracker;
+import dev.fokend.sentinel.engine.TimerBalance;
 import java.util.UUID;
 
+/**
+ * Per-player state. Main thread only. Holds primitives and UUIDs, never Bukkit objects, and is removed
+ * when the player quits.
+ */
 public final class PlayerData {
 
+    public static final int HISTORY_TICKS = 40;
+
     private final UUID uuid;
-    private final Map<CheckType, Double> violations = new EnumMap<>(CheckType.class);
-    private final Map<CheckType, Double> buffers = new EnumMap<>(CheckType.class);
+    private final double[] violations = new double[CheckType.values().length];
+    private final double[] buffers = new double[CheckType.values().length];
+    private final long[] lastAlert = new long[CheckType.values().length];
 
-    private boolean alertsEnabled = true;
+    public boolean alerts = true;
+    public boolean kickPending;
 
-    // Состояния для AutoAttributeSwap и Killaura
-    private long lastSlotSwitchMillis = 0L;
-    private int lastSwitchTick = 0;
-    private int switchesInCurrentTick = 0;
-    private int lastAttackTick = 0;
-    private UUID lastTargetUuid = null;
+    // ---- client tick tracking
+    /** Server tick of the last client_tick_end packet; clients that never send it are not checked. */
+    public int lastClientTickEnd = Integer.MIN_VALUE;
+    public long clientTicks;
 
-    // Состояния для Movement (Fly / Speed / NoSlow)
-    private int airTicks = 0;
-    private double lastDeltaY = 0.0;
-    private int velocityGraceTicks = 0;
-    private int teleportGraceTicks = 0;
-    private int iceGraceTicks = 0;
-    private int slimeGraceTicks = 0;
-    private int lastGraceTick = Integer.MIN_VALUE;
-    private int useItemTicks = 0;
-    private Location lastSafeGroundLocation = null;
+    // ---- combat (per client tick)
+    public final SwapTracker swaps = new SwapTracker();
+    public UUID firstTargetThisTick;
+    public boolean attackedThisTick;
+    public boolean swungThisTick;
+    public long autoSwapPenaltyUntil;
 
-    // Состояния для Scaffold
-    private long lastBlockPlaceMillis = 0L;
-    private float lastPlacePitch = 0.0f;
+    // ---- movement
+    public boolean hasLast;
+    public UUID lastWorld;
+    public double lastX, lastY, lastZ;
+    public double lastDeltaY, lastDeltaXZ;
+    /** Ground state / slipperiness at the end of the previous tick (= start of the current tick). */
+    public boolean lastGround;
+    public double lastSlip = 0.6;
+    /** Ground state / slipperiness at the start of the previous tick. */
+    public boolean prevStartGround;
+    public double prevStartSlip = 0.6;
+    public double lastSpeedAttribute = 0.1;
+    public boolean lastSprinting;
+    /** Client ticks during which movement checks are skipped (after teleports, fluids, climbing ...). */
+    public int exemptTicks;
+    /** Pending knockback tolerance. */
+    public double velocityXZ, velocityY;
+    public int velocityTicks;
+    /** Last position that passed every movement check while on ground (setback target). */
+    public boolean hasSafe;
+    public UUID safeWorld;
+    public double safeX, safeY, safeZ;
+
+    // ---- timer
+    public final TimerBalance timer = new TimerBalance();
+    public int timerGraceTicks = 100;
+
+    // ---- reach
+    public final PositionHistory history = new PositionHistory(HISTORY_TICKS);
 
     public PlayerData(UUID uuid) {
         this.uuid = uuid;
     }
 
-    public UUID getUuid() {
+    public UUID uuid() {
         return uuid;
     }
 
-    public double addViolation(CheckType type, double amount) {
-        double updated = violations.getOrDefault(type, 0.0) + amount;
-        violations.put(type, updated);
-        return updated;
+    public double violation(CheckType t) {
+        return violations[t.ordinal()];
     }
 
-    public double getViolation(CheckType type) {
-        return violations.getOrDefault(type, 0.0);
+    public double addViolation(CheckType t, double amount) {
+        return violations[t.ordinal()] += amount;
     }
 
     public void decayViolations(double factor) {
-        for (Map.Entry<CheckType, Double> entry : violations.entrySet()) {
-            double next = entry.getValue() * factor;
-            if (next < 0.05) {
-                violations.put(entry.getKey(), 0.0);
-            } else {
-                violations.put(entry.getKey(), next);
-            }
+        for (int i = 0; i < violations.length; i++) {
+            violations[i] = violations[i] * factor < 0.05 ? 0 : violations[i] * factor;
         }
     }
 
-    public double incrementBuffer(CheckType type, double amount) {
-        double next = buffers.getOrDefault(type, 0.0) + amount;
-        buffers.put(type, next);
-        return next;
+    public void resetViolations() {
+        java.util.Arrays.fill(violations, 0);
+        java.util.Arrays.fill(buffers, 0);
     }
 
-    public void decayBuffer(CheckType type, double amount) {
-        double next = Math.max(0.0, buffers.getOrDefault(type, 0.0) - amount);
-        buffers.put(type, next);
+    public double addBuffer(CheckType t, double amount) {
+        return buffers[t.ordinal()] += amount;
     }
 
-    public void resetBuffer(CheckType type) {
-        buffers.put(type, 0.0);
+    public void decayBuffer(CheckType t, double amount) {
+        buffers[t.ordinal()] = Math.max(0, buffers[t.ordinal()] - amount);
     }
 
-    public boolean isAlertsEnabled() {
-        return alertsEnabled;
+    public void resetBuffer(CheckType t) {
+        buffers[t.ordinal()] = 0;
     }
 
-    public void setAlertsEnabled(boolean alertsEnabled) {
-        this.alertsEnabled = alertsEnabled;
+    public long lastAlert(CheckType t) {
+        return lastAlert[t.ordinal()];
     }
 
-    public long getLastSlotSwitchMillis() {
-        return lastSlotSwitchMillis;
+    public void lastAlert(CheckType t, long when) {
+        lastAlert[t.ordinal()] = when;
     }
 
-    public void recordSlotSwitch(long nowMillis, int currentTick) {
-        this.lastSlotSwitchMillis = nowMillis;
-        if (this.lastSwitchTick == currentTick) {
-            this.switchesInCurrentTick++;
-        } else {
-            this.lastSwitchTick = currentTick;
-            this.switchesInCurrentTick = 1;
-        }
-    }
-
-    public int getLastSwitchTick() {
-        return lastSwitchTick;
-    }
-
-    public int getSwitchesInCurrentTick() {
-        return switchesInCurrentTick;
-    }
-
-    public int getLastAttackTick() {
-        return lastAttackTick;
-    }
-
-    public void setLastAttackTick(int lastAttackTick) {
-        this.lastAttackTick = lastAttackTick;
-    }
-
-    public UUID getLastTargetUuid() {
-        return lastTargetUuid;
-    }
-
-    public void setLastTargetUuid(UUID lastTargetUuid) {
-        this.lastTargetUuid = lastTargetUuid;
-    }
-
-    public int getAirTicks() {
-        return airTicks;
-    }
-
-    public void incrementAirTicks() {
-        this.airTicks++;
-    }
-
-    public void resetAirTicks() {
-        this.airTicks = 0;
-    }
-
-    public double getLastDeltaY() {
-        return lastDeltaY;
-    }
-
-    public void setLastDeltaY(double lastDeltaY) {
-        this.lastDeltaY = lastDeltaY;
-    }
-
-    public int getVelocityGraceTicks() {
-        return velocityGraceTicks;
-    }
-
-    public void setVelocityGraceTicks(int velocityGraceTicks) {
-        this.velocityGraceTicks = velocityGraceTicks;
-    }
-
-    public void tickGraceCounters(int currentTick) {
-        // PlayerMoveEvent may fire several times in one server tick. Grace periods
-        // are measured in ticks, so decrement each counter at most once per tick.
-        if (lastGraceTick == currentTick) {
-            return;
-        }
-        lastGraceTick = currentTick;
-        if (velocityGraceTicks > 0) velocityGraceTicks--;
-        if (teleportGraceTicks > 0) teleportGraceTicks--;
-        if (iceGraceTicks > 0) iceGraceTicks--;
-        if (slimeGraceTicks > 0) slimeGraceTicks--;
-    }
-
-    public int getTeleportGraceTicks() {
-        return teleportGraceTicks;
-    }
-
-    public void setTeleportGraceTicks(int teleportGraceTicks) {
-        this.teleportGraceTicks = teleportGraceTicks;
-    }
-
-    public int getIceGraceTicks() {
-        return iceGraceTicks;
-    }
-
-    public void setIceGraceTicks(int iceGraceTicks) {
-        this.iceGraceTicks = iceGraceTicks;
-    }
-
-    public int getSlimeGraceTicks() {
-        return slimeGraceTicks;
-    }
-
-    public void setSlimeGraceTicks(int slimeGraceTicks) {
-        this.slimeGraceTicks = slimeGraceTicks;
-    }
-
-    public int getUseItemTicks() {
-        return useItemTicks;
-    }
-
-    public void incrementUseItemTicks() {
-        this.useItemTicks++;
-    }
-
-    public void resetUseItemTicks() {
-        this.useItemTicks = 0;
-    }
-
-    public Location getLastSafeGroundLocation() {
-        return lastSafeGroundLocation;
-    }
-
-    public void setLastSafeGroundLocation(Location lastSafeGroundLocation) {
-        this.lastSafeGroundLocation = lastSafeGroundLocation.clone();
-    }
-
-    public long getLastBlockPlaceMillis() {
-        return lastBlockPlaceMillis;
-    }
-
-    public void setLastBlockPlaceMillis(long lastBlockPlaceMillis) {
-        this.lastBlockPlaceMillis = lastBlockPlaceMillis;
-    }
-
-    public float getLastPlacePitch() {
-        return lastPlacePitch;
-    }
-
-    public void setLastPlacePitch(float lastPlacePitch) {
-        this.lastPlacePitch = lastPlacePitch;
+    /** Forget movement history (teleports, respawns, world changes, flight toggles ...). */
+    public void resetMovement(int exemptFor) {
+        hasLast = false;
+        exemptTicks = Math.max(exemptTicks, exemptFor);
+        velocityTicks = 0;
+        velocityXZ = 0;
+        velocityY = 0;
     }
 }
-
